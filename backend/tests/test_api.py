@@ -291,7 +291,7 @@ class TestExport:
             "grid_direction",
             "source",
             # The gateway's own counters travel with the export, so the later
-            # Azure SQL load carries the trustworthy energy record too.
+            # Azure SQL load carries the lifetime counters and the scale too.
             "solar_kwh_lifetime",
             "home_kwh_lifetime",
             "grid_net_kwh_lifetime",

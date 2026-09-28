@@ -114,7 +114,11 @@ def summarise(rows: list[DailyImport]) -> str:
         usable = [d for d in days if d.home_kwh is not None]
         home = sum(d.home_kwh or 0.0 for d in usable)
         dropped = len(days) - len(usable)
-        note = f", {dropped} day(s) with impossible usage dropped" if dropped else ""
+        note = (
+            f", {dropped} day(s) with usage still impossible after correction"
+            if dropped
+            else ""
+        )
         lines.append(
             f"  {month}: {len(days):2} days | solar {solar:8.2f} kWh | "
             f"home {home:8.2f} kWh{note}"

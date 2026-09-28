@@ -80,8 +80,8 @@ def status_line(reading: Reading | None, gateway_reachable: bool) -> str:
 #: concrete: it says what is wrong and what to do, not that something failed.
 METER_WARNING = (
     "These figures do not balance: the gateway reports more export than it "
-    "generates. Your consumption CT looks miscalibrated -- see GRID_SCALE in "
-    "the README. Lifetime energy totals are unaffected."
+    "generates. Your consumption CT looks miscalibrated -- set GRID_SCALE and "
+    "run recalibrate.py, as described in the README."
 )
 
 

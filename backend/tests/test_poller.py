@@ -304,7 +304,7 @@ class TestReadingNormalisation:
         assert home == pytest.approx(-0.01)
 
     def test_lifetime_counters_survive_a_round_trip(self, poller_store) -> None:
-        """Counters are the trustworthy record, so they must persist exactly."""
+        """History cannot be re-fetched, so the counters must persist exactly."""
         import asyncio
 
         async def check() -> None:

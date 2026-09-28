@@ -325,7 +325,9 @@ REM Import, limited to this year
 ```
 
 Needs `pypdf` (in `requirements-dev.txt`). Re-importing a month replaces it, so
-running it again with updated reports is safe.
+running it again with updated reports is safe. The usage column is corrected
+with `GRID_SCALE` from `.env` (or `--grid-scale`), so set that first; see the
+CT section above.
 
 **What this does and does not give you**
 

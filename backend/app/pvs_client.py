@@ -293,7 +293,8 @@ class PVSGatewayClient:
                 "Gateway reported a negative house load (solar=%.2fkW "
                 "net=%.2fkW). The net/consumption CT channel is almost "
                 "certainly miscalibrated -- compare ctSclFctr against the CT "
-                "rating on the clamps, then set GRID_SCALE in .env. Showing "
+                "rating on the clamps, then set GRID_SCALE in .env and run "
+                "backend/scripts/recalibrate.py to correct history. Showing "
                 "the magnitude (%.2fkW) so the dashboard matches the "
                 "SunStrong app meanwhile.",
                 solar_kw,
