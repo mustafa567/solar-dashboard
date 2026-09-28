@@ -55,6 +55,9 @@ def configure_logging(settings: Settings) -> None:
         level=getattr(logging, settings.log_level, logging.INFO),
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
     )
+    # pypvs logs the gateway's session cookie at INFO on every login, and that
+    # cookie is a live credential. Keep its warnings, drop the rest.
+    logging.getLogger("pypvs").setLevel(logging.WARNING)
 
 
 @asynccontextmanager

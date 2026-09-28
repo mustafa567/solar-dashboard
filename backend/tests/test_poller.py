@@ -224,6 +224,36 @@ class TestSerialMasking:
         assert settings.pvs_password not in str(described)
 
 
+    async def test_connecting_never_logs_the_full_serial(
+        self, tmp_path, monkeypatch, caplog
+    ) -> None:
+        """The connect log line once printed the whole serial, password included."""
+        import logging
+
+        from app import pvs_client
+
+        class FakePVS:
+            def __init__(self, **_: object) -> None:
+                self.serial_number: str | None = None
+
+            async def discover(self) -> None:
+                self.serial_number = "ZT111111111111B2222"
+
+            async def setup(self, auth_password: str) -> None:
+                assert auth_password == "B2222"
+
+        monkeypatch.setattr(pvs_client, "PVS", FakePVS)
+        client = pvs_client.PVSGatewayClient(make_settings(tmp_path))
+        caplog.set_level(logging.DEBUG)
+        try:
+            await client._connect_to("192.0.2.10")
+        finally:
+            await client._session.close()
+
+        assert "Connected to PVS6" in caplog.text
+        assert "B2222" not in caplog.text
+        assert "ZT111111111111*****" in caplog.text
+
 class TestReadingNormalisation:
     """Guards for the miscalibrated net/consumption channel on this gateway.
 

@@ -275,6 +275,14 @@ two healthy SQLite copies legitimately differ byte-for-byte.
 
 ## Change log
 
+- **2026-09-27** -- Moved to a new Windows host and installed as an NSSM
+  service. Fixed two credential leaks into the logs: the connect line in
+  `pvs_client.py` printed the full serial (now masked, with a regression
+  test), and `pypvs` logs the gateway session cookie at INFO on every login
+  (its logger is now held at WARNING in `main.py`). Fixed
+  `install-service-nssm.bat` rejecting `set NSSM=<full path>`: `where`
+  cannot take a path, so a path is now checked with `if exist`. 113 tests
+  passing.
 - **2026-09-27** -- Prepared for the move to another machine / Raspberry
   Pi: made the neighbour lookup cross-platform (`ip neigh` then `arp -a`),
   added a POSIX launcher and a systemd unit, and added `verify_db.py` to

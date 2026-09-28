@@ -26,13 +26,17 @@ if errorlevel 1 (
     exit /b 1
 )
 
-where %NSSM% >nul 2>&1
+REM `where` only searches PATH and rejects a full path, so check a configured
+REM path with `if exist` and fall back to `where` for a bare name.
+if exist "%NSSM%" goto :nssm_found
+where "%NSSM%" >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] nssm.exe not found on PATH.
     echo         Download it from https://nssm.cc/download, or set NSSM first:
     echo             set NSSM=C:\tools\nssm\win64\nssm.exe
     exit /b 1
 )
+:nssm_found
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 

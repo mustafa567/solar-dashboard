@@ -44,7 +44,7 @@ from pypvs.models.livedata import PVSLiveData
 from pypvs.models.meter import PVSMeter
 from pypvs.pvs import PVS
 
-from .config import Settings
+from .config import Settings, mask_serial
 from .discovery import DiscoveryCache, candidate_hosts
 from .models import Reading, ReadingSource, utcnow
 
@@ -285,7 +285,9 @@ class PVSGatewayClient:
 
         await pvs.setup(auth_password=password)
         self._pvs = pvs
-        _LOGGER.info("Connected to PVS6 at %s (serial %s)", host, self.serial_number)
+        _LOGGER.info(
+            "Connected to PVS6 at %s (serial %s)", host, mask_serial(self.serial_number)
+        )
 
     async def _read_mac(self) -> str | None:
         """Learn the gateway's MAC so ARP can find it after a lease change."""
