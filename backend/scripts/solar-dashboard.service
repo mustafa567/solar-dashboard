@@ -1,0 +1,56 @@
+# systemd unit for the solar dashboard (Raspberry Pi / any Linux).
+#
+# Install:
+#   sudo cp backend/scripts/solar-dashboard.service /etc/systemd/system/
+#   sudo nano /etc/systemd/system/solar-dashboard.service   # fix User and paths
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now solar-dashboard
+#
+# Manage:
+#   systemctl status solar-dashboard
+#   sudo systemctl restart solar-dashboard
+#   journalctl -u solar-dashboard -f          # live logs
+#
+# This is the Linux equivalent of the NSSM service on Windows: it starts at
+# boot before login, restarts on failure, and keeps the poller recording.
+
+[Unit]
+Description=Solar Dashboard (PVS6 poller and API)
+Documentation=file:///home/pi/solar-dashboard/README.md
+# Do not start polling before the network is up.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+# Change these two to match where you put it and who owns it.
+User=pi
+WorkingDirectory=/home/pi/solar-dashboard
+ExecStart=/home/pi/solar-dashboard/backend/scripts/run-backend.sh
+
+# Always come back, but do not spin on a hard failure.
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Give the poller time to finish its current write and close the database
+# cleanly -- a killed writer is how a SQLite file gets damaged.
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+# Logs go to the journal; journald handles rotation, so no log files to manage.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=solar-dashboard
+
+# Modest hardening. The app only needs to read its own directory and talk to
+# the LAN, so everything else is closed off.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/pi/solar-dashboard/data /home/pi/solar-dashboard/logs
+
+[Install]
+WantedBy=multi-user.target

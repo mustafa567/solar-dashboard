@@ -1,0 +1,8 @@
+# Backend deps. Install with:  pip install -r backend/requirements.txt
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pypvs==0.2.9
+aiohttp==3.13.2
+# Windows ships no IANA timezone database, so zoneinfo needs this for the
+# optional TIMEZONE setting. Pure data, no code.
+tzdata==2025.2

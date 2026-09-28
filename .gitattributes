@@ -1,0 +1,31 @@
+# Line endings, pinned deliberately.
+#
+# This repo is cloned onto both Windows and Linux (a Raspberry Pi). Shell
+# scripts and systemd units MUST keep LF endings: a `run-backend.sh` checked out
+# with CRLF fails on Linux with "bad interpreter: /usr/bin/env bash^M", and
+# systemd will not parse a unit file with CR in it.
+#
+# Windows batch files are the mirror image and want CRLF.
+
+* text=auto eol=lf
+
+*.sh        text eol=lf
+*.service   text eol=lf
+
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+# Never touched: treating these as text would corrupt them.
+*.db        binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.pdf       binary
+*.woff      binary
+*.woff2     binary
+
+# Keeps `git diff` on a lockfile from drowning a review.
+package-lock.json  -diff linguist-generated

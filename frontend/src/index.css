@@ -1,0 +1,278 @@
+@import "tailwindcss";
+
+/*
+  Two themes, and the app moves between them on its own.
+
+  Day is the SunStrong Connect look: a sky gradient over white cards. Night is a
+  dark instrument panel. The switch is driven by the gateway's own production
+  reading, so the dashboard literally brightens when the array wakes up and dims
+  when it stops -- the page reports the sun by looking like it. A manual
+  override is available for when you disagree.
+
+  Channel colours are fixed by the brief in both themes: amber = solar,
+  teal = grid, neutral = home usage.
+*/
+
+@theme {
+  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Declared so Tailwind emits the utilities; real values come from the
+     theme blocks below and are swapped at runtime. */
+  --color-void: #080e1a;
+  --color-panel: #0f1829;
+  --color-panel-raised: #16223a;
+  --color-hairline: #1f2d47;
+
+  --color-solar: #ffb020;
+  --color-solar-bright: #ffd37a;
+  --color-solar-dim: #7a5312;
+
+  --color-grid: #2dd4bf;
+  --color-grid-bright: #7defdd;
+  --color-grid-dim: #10574e;
+
+  --color-home: #b6c4da;
+  --color-home-bright: #e8eef8;
+  --color-home-dim: #4a5a74;
+
+  --color-ink: #e8eef8;
+  --color-ink-muted: #8a9bb4;
+  --color-ink-faint: #5a6b85;
+
+  --color-alert: #ff6b5a;
+}
+
+/* -- Night (default) ------------------------------------------------------ */
+:root,
+:root[data-theme="night"] {
+  --color-void: #080e1a;
+  --color-panel: #0f1829;
+  --color-panel-raised: #16223a;
+  --color-hairline: #1f2d47;
+
+  --color-solar: #ffb020;
+  --color-solar-bright: #ffd37a;
+  --color-solar-dim: #7a5312;
+
+  --color-grid: #2dd4bf;
+  --color-grid-bright: #7defdd;
+  --color-grid-dim: #10574e;
+
+  --color-home: #b6c4da;
+  --color-home-bright: #e8eef8;
+  --color-home-dim: #4a5a74;
+
+  --color-ink: #e8eef8;
+  --color-ink-muted: #8a9bb4;
+  --color-ink-faint: #5a6b85;
+
+  --color-alert: #ff6b5a;
+
+  /* Chart series. Snapped to the dark lightness band and validated for
+     all-pairs colour-vision separation against the #0F1829 surface. */
+  --series-solar: #ce7e00;
+  --series-grid: #00a597;
+  --series-home: #917fc8;
+  --chart-grid-line: #18243a;
+  --chart-axis: #1f2d47;
+  --chart-tick: #5a6b85;
+  --chart-cursor: #33455f;
+
+  --page-bg: radial-gradient(
+      120% 80% at 50% -10%,
+      #14243d 0%,
+      transparent 60%
+    ),
+    #080e1a;
+  color-scheme: dark;
+}
+
+/* -- Day ------------------------------------------------------------------ */
+:root[data-theme="day"] {
+  --color-void: #eaf3fa;
+  --color-panel: #ffffff;
+  --color-panel-raised: #f1f7fc;
+  --color-hairline: #d3e4f0;
+
+  --color-solar: #e0890f;
+  --color-solar-bright: #f5b54a;
+  --color-solar-dim: #e3cfae;
+
+  --color-grid: #0b8e9b;
+  --color-grid-bright: #22b3bd;
+  --color-grid-dim: #bcdde1;
+
+  --color-home: #3c5f78;
+  --color-home-bright: #0f2c42;
+  --color-home-dim: #a9c0d0;
+
+  --color-ink: #10304a;
+  --color-ink-muted: #4c6b80;
+  --color-ink-faint: #7b96a9;
+
+  --color-alert: #c2413a;
+
+  /* Chart series, re-stepped for the light band and validated against #FFFFFF
+     (worst adjacent pair dE 10.0 deutan / 18.4 normal). Not an automatic flip
+     of the night values. */
+  --series-solar: #b86e00;
+  --series-grid: #008a7e;
+  --series-home: #7a66b8;
+  --chart-grid-line: #e3eef6;
+  --chart-axis: #d3e4f0;
+  --chart-tick: #7b96a9;
+  --chart-cursor: #9fbdd0;
+
+  /* The sky, as in the app: blue at the horizon fading to near-white. */
+  --page-bg: linear-gradient(
+      180deg,
+      #a9dcf2 0%,
+      #cfeaf8 26%,
+      #eaf3fa 52%,
+      #f6fafd 100%
+    )
+    no-repeat;
+  color-scheme: light;
+}
+
+html {
+  /* The page colour has to cover the whole viewport, not just the content
+     box, or overscroll and short pages show the browser's own white. */
+  background: var(--color-void);
+  min-height: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--page-bg);
+  background-attachment: fixed;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: env(safe-area-inset-bottom);
+  transition:
+    background-color 600ms ease,
+    color 600ms ease;
+}
+
+/* Scrollbars only appear where content genuinely overflows (a month of bars on
+   a phone). The default chunky bar reads as a layout bug, so make it thin and
+   let it fade into the surface. */
+.scroll-subtle {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-hairline) transparent;
+}
+
+.scroll-subtle::-webkit-scrollbar {
+  height: 6px;
+}
+
+.scroll-subtle::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scroll-subtle::-webkit-scrollbar-thumb {
+  background-color: var(--color-hairline);
+  border-radius: 999px;
+}
+
+.scroll-subtle::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-ink-faint);
+}
+
+/* Readouts are instrument data: tabular figures so digits do not jitter as
+   values change every 30 seconds. */
+.readout {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.02em;
+}
+
+.eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* Cards lift slightly in day mode, where a border alone reads as flat. */
+:root[data-theme="day"] .panel-surface {
+  box-shadow: 0 1px 2px rgba(16, 48, 74, 0.06),
+    0 8px 24px -12px rgba(16, 48, 74, 0.18);
+}
+
+/* The signature element: current visibly travelling along an active leg of the
+   flow triangle. Speed is set per-leg from the real kW via --flow-duration. */
+.flow-current {
+  stroke-dasharray: 2 10;
+  stroke-linecap: round;
+  animation: flow-travel var(--flow-duration, 2s) linear infinite;
+}
+
+@keyframes flow-travel {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+.live-pulse {
+  animation: live-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Numbers fade in when a new poll lands, so a refresh is legible without the
+   whole panel flashing. */
+.value-enter {
+  animation: value-enter 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes value-enter {
+  from {
+    opacity: 0.45;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-current,
+  .live-pulse,
+  .value-enter {
+    animation: none;
+  }
+  .flow-current {
+    stroke-dasharray: none;
+  }
+  body {
+    transition: none;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-grid);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Recharts injects focus outlines on its surfaces; the chart itself is not a
+   control, so keep focus rings on the actual buttons. */
+.recharts-wrapper:focus,
+.recharts-surface:focus {
+  outline: none;
+}

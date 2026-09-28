@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Config & data (never commit secrets or the reading history)
+.env
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/backups/
+# Machine-specific: where this host last found the gateway. Re-learned on
+# first connect, and wrong on any other machine.
+data/gateway-location.json
+logs/
+
+# Node / frontend build
+node_modules/
+frontend/dist/
+.vite/
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
