@@ -98,7 +98,9 @@ async def main() -> int:
         print(f"No database at {db_path}", file=sys.stderr)
         return 1
 
-    store = SqliteReadingStore(db_path)
+    # A dry run must not even migrate the schema: it is run against the live
+    # database while the old service may still be writing to it.
+    store = SqliteReadingStore(db_path, read_only=args.dry_run)
     await store.initialize()
     try:
         stats = await store.stats()

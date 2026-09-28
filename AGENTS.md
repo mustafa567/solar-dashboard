@@ -284,6 +284,14 @@ two healthy SQLite copies legitimately differ byte-for-byte.
 
 ## Change log
 
+- **2026-09-28** -- Applying the CT fix on the live host showed that
+  `recalibrate.py --dry-run` was not read-only: opening the store ran the v5
+  migration against the live database while the old service was still
+  writing. `SqliteReadingStore(read_only=True)` now works on a migrated
+  in-memory copy and never writes the file; dry runs use it. Also found that
+  a blank `TIMEZONE` resolves to the *fixed* UTC offset at startup, not a DST
+  zone, so winter month edges were an hour off -- set `TIMEZONE` explicitly.
+  128 tests passing.
 - **2026-09-28** -- Measured the CT error: net power (and the `site_load_en` /
   `net_en` counters) read 2x high, so `GRID_SCALE=0.5`. Corrected rule 9,
   which wrongly called those counters trustworthy. Schema v5 records the

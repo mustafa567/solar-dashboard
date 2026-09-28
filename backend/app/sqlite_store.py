@@ -204,8 +204,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
 class SqliteReadingStore(ReadingStore):
     """Stores readings in a local SQLite file."""
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, *, read_only: bool = False) -> None:
+        """``read_only`` works on an in-memory copy of the file.
+
+        The copy is migrated, so an older database can still be inspected with
+        the current code, but neither the migration nor any later write ever
+        reaches the file. Used for dry runs against a live database.
+        """
         self._db_path = Path(db_path)
+        self._read_only = read_only
         self._conn: sqlite3.Connection | None = None
         self._lock = threading.Lock()
 
@@ -219,23 +226,38 @@ class SqliteReadingStore(ReadingStore):
         await asyncio.to_thread(self._initialize_sync)
 
     def _initialize_sync(self) -> None:
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(
-            self._db_path,
-            check_same_thread=False,
-            timeout=30.0,
-            isolation_level=None,  # autocommit; no long-lived transactions
-        )
+        if self._read_only:
+            conn = sqlite3.connect(
+                ":memory:", check_same_thread=False, isolation_level=None
+            )
+            source = sqlite3.connect(
+                f"{self._db_path.resolve().as_uri()}?mode=ro", uri=True, timeout=30.0
+            )
+            try:
+                source.backup(conn)
+            finally:
+                source.close()
+        else:
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(
+                self._db_path,
+                check_same_thread=False,
+                timeout=30.0,
+                isolation_level=None,  # autocommit; no long-lived transactions
+            )
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA busy_timeout=30000")
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA busy_timeout=30000")
         conn.executescript(_SCHEMA)
         _migrate(conn)
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         self._conn = conn
         _LOGGER.info(
-            "SQLite store ready at %s (schema v%s)", self._db_path, SCHEMA_VERSION
+            "SQLite store ready at %s (schema v%s%s)",
+            self._db_path,
+            SCHEMA_VERSION,
+            ", read-only copy" if self._read_only else "",
         )
 
     async def close(self) -> None:

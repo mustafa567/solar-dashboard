@@ -126,30 +126,7 @@ class TestStorage:
     async def test_a_v4_database_migrates_without_losing_anything(
         self, tmp_path
     ) -> None:
-        path = tmp_path / "v4.db"
-        conn = sqlite3.connect(path)
-        conn.executescript(
-            """
-            CREATE TABLE readings (
-                ts INTEGER PRIMARY KEY, solar_kw REAL NOT NULL,
-                home_kw REAL NOT NULL, grid_kw REAL NOT NULL,
-                grid_direction TEXT NOT NULL,
-                source TEXT NOT NULL DEFAULT 'livedata',
-                solar_kwh_lifetime REAL, home_kwh_lifetime REAL,
-                grid_net_kwh_lifetime REAL);
-            CREATE TABLE daily_import (
-                day TEXT PRIMARY KEY, solar_kwh REAL, home_kwh REAL,
-                max_ac_kw REAL, source TEXT NOT NULL,
-                imported_at INTEGER NOT NULL);
-            INSERT INTO readings VALUES
-                (1790630000, 5.11, 3.2, -8.31, 'export', 'livedata', 1, 2, 3);
-            INSERT INTO daily_import VALUES
-                ('2026-03-01', 40.0, 60.0, 6.0, 'sunpower-monthly-report', 0),
-                ('2026-03-02', 43.47, NULL, 6.31, 'sunpower-monthly-report', 0);
-            PRAGMA user_version = 4;
-            """
-        )
-        conn.close()
+        path = _make_v4_db(tmp_path / "v4.db")
 
         store = SqliteReadingStore(path)
         await store.initialize()
@@ -167,3 +144,57 @@ class TestStorage:
             assert all(row.grid_scale == 1.0 for row in rows)
         finally:
             await store.close()
+
+    async def test_read_only_reads_an_old_database_without_touching_it(
+        self, tmp_path
+    ) -> None:
+        # recalibrate.py --dry-run once migrated the live database to v5 while
+        # the old service was still writing to it.
+        path = _make_v4_db(tmp_path / "v4.db")
+        before = path.read_bytes()
+
+        store = SqliteReadingStore(path, read_only=True)
+        await store.initialize()
+        try:
+            reading = await store.latest_reading()
+            assert reading is not None and reading.grid_scale == 1.0
+            await store.insert_reading(_as_stored(1.0, 0.5, 0.5))
+        finally:
+            await store.close()
+
+        assert path.read_bytes() == before
+        conn = sqlite3.connect(path)
+        try:
+            assert conn.execute("PRAGMA user_version").fetchone() == (4,)
+            assert conn.execute("SELECT COUNT(*) FROM readings").fetchone() == (1,)
+        finally:
+            conn.close()
+
+
+def _make_v4_db(path):
+    """A database as schema v4 left it: no grid_scale, no printed usage."""
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE readings (
+            ts INTEGER PRIMARY KEY, solar_kw REAL NOT NULL,
+            home_kw REAL NOT NULL, grid_kw REAL NOT NULL,
+            grid_direction TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'livedata',
+            solar_kwh_lifetime REAL, home_kwh_lifetime REAL,
+            grid_net_kwh_lifetime REAL);
+        CREATE TABLE daily_import (
+            day TEXT PRIMARY KEY, solar_kwh REAL, home_kwh REAL,
+            max_ac_kw REAL, source TEXT NOT NULL,
+            imported_at INTEGER NOT NULL);
+        INSERT INTO readings VALUES
+            (1790630000, 5.11, 3.2, -8.31, 'export', 'livedata', 1, 2, 3);
+        INSERT INTO daily_import VALUES
+            ('2026-03-01', 40.0, 60.0, 6.0, 'sunpower-monthly-report', 0),
+            ('2026-03-02', 43.47, NULL, 6.31, 'sunpower-monthly-report', 0);
+        PRAGMA user_version = 4;
+        """
+    )
+    conn.close()
+    return path
+
