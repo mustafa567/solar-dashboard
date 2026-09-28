@@ -19,8 +19,10 @@ parentheses like "(19.42)".
 
 That is the same miscalibrated consumption CT the live gateway shows -- SunPower
 derives household use as production plus net grid, so an overstated export drags
-it below zero. Those values are impossible, so they are imported as NULL rather
-than as fact. Production is unaffected and is imported for every day.
+it below zero. The printed value is kept as ``home_kwh_reported`` and the usable
+figure is corrected with GRID_SCALE exactly as live power is: ``produced +
+(used - produced) * GRID_SCALE``. A day that is still negative after that is
+stored as NULL rather than as fact. Production is unaffected.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "backend"))
 
+from app.calibration import corrected_daily_home  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.models import DailyImport  # noqa: E402
 from app.sqlite_store import SqliteReadingStore  # noqa: E402
@@ -66,7 +69,7 @@ def parse_number(raw: str) -> float | None:
     return -value if negative else value
 
 
-def parse_report(path: Path) -> list[DailyImport]:
+def parse_report(path: Path, grid_scale: float = 1.0) -> list[DailyImport]:
     """Extract the daily table from one report PDF."""
     try:
         from pypdf import PdfReader
@@ -81,18 +84,19 @@ def parse_report(path: Path) -> list[DailyImport]:
 
     rows: list[DailyImport] = []
     for day_text, produced, used, max_ac in _ROW.findall(text):
-        home_kwh = parse_number(used)
-        if home_kwh is not None and home_kwh < 0:
-            # Impossible: a house cannot consume negative energy. Recorded as
-            # unknown so the charts show a gap rather than a fabricated number.
-            home_kwh = None
+        solar_kwh = parse_number(produced)
+        reported = parse_number(used)
         rows.append(
             DailyImport(
                 day=datetime.strptime(day_text, "%b %d, %Y").date(),
-                solar_kwh=parse_number(produced),
-                home_kwh=home_kwh,
+                solar_kwh=solar_kwh,
+                # None when still impossible after correction, so the charts
+                # show a gap rather than a fabricated number.
+                home_kwh=corrected_daily_home(solar_kwh, reported, grid_scale),
                 max_ac_kw=parse_number(max_ac),
                 source=SOURCE,
+                home_kwh_reported=reported,
+                grid_scale=grid_scale,
             )
         )
     return rows
@@ -134,7 +138,15 @@ async def main() -> int:
         action="store_true",
         help="Parse and summarise without writing anything",
     )
+    parser.add_argument(
+        "--grid-scale",
+        type=float,
+        default=None,
+        help="Correction for the usage column (default: GRID_SCALE from .env)",
+    )
     args = parser.parse_args()
+    settings = get_settings()
+    grid_scale = args.grid_scale if args.grid_scale is not None else settings.grid_scale
 
     files: list[Path] = []
     for pattern in args.paths:
@@ -147,7 +159,7 @@ async def main() -> int:
 
     by_day: dict[date, DailyImport] = {}
     for path in files:
-        rows = parse_report(path)
+        rows = parse_report(path, grid_scale)
         print(f"{path.name}: {len(rows)} day rows")
         for row in rows:
             # Later files win on overlap, which is what you want when a month is
@@ -166,14 +178,13 @@ async def main() -> int:
         print("Parsed no day rows -- is this the right report format?", file=sys.stderr)
         return 1
 
-    print(f"\n{len(rows)} days, {rows[0].day} to {rows[-1].day}")
+    print(f"\n{len(rows)} days, {rows[0].day} to {rows[-1].day} (GRID_SCALE {grid_scale})")
     print(summarise(rows))
 
     if args.dry_run:
         print("\nDry run: nothing written.")
         return 0
 
-    settings = get_settings()
     db_path = Path(args.db) if args.db else settings.db_path
     store = SqliteReadingStore(db_path)
     await store.initialize()

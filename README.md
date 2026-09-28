@@ -262,29 +262,51 @@ figures do not balance either (5.9 kW of solar cannot power a 4.5 kW house
 but flags it instead of hiding it: you get a "Meter readings disagree" banner,
 `implausible_readings` on `/api/status`, and a warning in the service log.
 
-**Energy totals are unaffected.** The gateway's lifetime kWh counters are
-correct — they match your SunPower monthly report:
+**The lifetime counters carry the same fault.** `pv_en` is fine, but
+`site_load_en` and `net_en` are accumulated from the same net channel:
+`site_load_en` runs *backwards* by ~4 kWh every hour of heavy export. They match
+the SunPower monthly report only because SunPower builds the report from them
+too, which is also why the report prints negative "Energy Used" days.
 
-| Counter | Gateway (Sep 27) | Report (Aug 31) | Implied rate |
+### Measuring the error
+
+28 hours of real samples (Sep 27–28), with house load re-derived as
+`solar + net / k` for a range of divisors `k`:
+
+| k | corr(solar, home) | lowest home | median home, day / night |
 |---|---|---|---|
-| `pv_en` production | 59,567 kWh | 58,857 kWh | 26.3 kWh/day |
-| `site_load_en` household | 77,818 kWh | 76,753 kWh | 39.4 kWh/day |
+| 1 (as reported) | −0.76 | −5.13 kW | −3.35 / 1.60 kW |
+| 1.75 | −0.30 | −0.32 kW | 0.19 / 0.91 kW |
+| **2** | **−0.04** | **0.31 kW** | **0.81 / 0.80 kW** |
+| 2.5 | +0.47 | 0.25 kW | 1.67 / 0.64 kW |
 
-Both are consistent with August's actuals (29.5 and 61.8 kWh/day). Every reading
-stores these counters, so exact energy history is being preserved regardless of
-what the power channel says.
+A house does not use less power because the sun is out. Only `k = 2` makes the
+load independent of production, with the same baseline by day as by night. Any
+`k` below 1.85 still gives a negative load somewhere. So the net CT reads **2×
+high**, and `GRID_SCALE=0.5` corrects it.
 
 ### Fixing it
 
-1. Check the CT clamps on the consumption pair and compare their printed rating
-   against `ctSclFctr = 200`. If they are 100 A clamps, that is the 2×.
-2. Correct it at the gateway if you can, or set `GRID_SCALE` in `.env` to
-   compensate (`0.5` for a 2× over-read). The app then re-derives the house load
-   from the corrected figure rather than trusting `site_load_p`.
-3. A night-time reading settles it beyond doubt: with `pv_p` at zero,
-   `site_load_p` equals the net channel directly, so whatever it reads then is
-   what your house is actually drawing. The poller is recording continuously,
-   so tonight's data will show this.
+1. Set `GRID_SCALE=0.5` in `.env` and stop the service.
+2. Correct the history already recorded, then start the service again:
+
+   ```
+   .venv/Scripts/python.exe backend/scripts/recalibrate.py --dry-run
+   .venv/Scripts/python.exe backend/scripts/recalibrate.py
+   ```
+
+   Every reading records the scale it was stored under, so this is exact and
+   reversible: it snapshots the database first, recovers the raw net power,
+   re-derives the house load, re-corrects the imported report days, and rebuilds
+   the hourly rollup. Re-running it is a no-op.
+3. Re-import the monthly report PDFs once (see below) to recover the days the
+   old importer dropped as negative.
+4. Cross-check against your utility's smart-meter portal: its daily net export
+   should match the corrected figure, not the doubled one. The printed rating on
+   the consumption CT clamps against `ctSclFctr = 200` is the other confirmation.
+
+After this the SunStrong Connect app will disagree with this dashboard, because
+it still shows the uncorrected figures.
 
 ---
 
@@ -314,24 +336,26 @@ running it again with updated reports is safe.
   never covered, so live data is never overwritten.
 - The reports give no import/export split, so for imported periods "From grid"
   and "Self-consumption" show `--` rather than a misleading zero.
-- **Days whose reported usage was negative are imported without a usage figure.**
-  That column carries the same miscalibrated CT described above — SunPower
-  derives household use as production plus net grid, so an overstated export
-  drags it below zero. Production is unaffected and is imported for every day.
+- **Reported usage is corrected with `GRID_SCALE`.** That column carries the same
+  miscalibrated CT described above — SunPower derives household use as
+  production plus net grid, so an overstated export drags it below zero. The
+  printed value is kept as `home_kwh_reported`, and the usable figure is
+  `produced + (used − produced) × GRID_SCALE`. A day still negative after that
+  is stored without a usage figure. Production is unaffected.
 
-The 2026 import covered 243 days (Jan–Aug), of which 39 had impossible usage
-values that were left out:
+The 2026 import covered 243 days (Jan–Aug). As printed, 39 days had impossible
+negative usage. Corrected at `GRID_SCALE=0.5`, every day is usable:
 
-| Month | Solar | Household use | Days dropped |
+| Month | Solar | Use as printed (days dropped) | Use corrected |
 |---|---|---|---|
-| Jan | 521.4 | 2,435.5 | – |
-| Feb | 648.2 | 1,541.9 | 1 |
-| Mar | 832.7 | 1,216.4 | 6 |
-| Apr | 927.6 | 1,114.6 | 8 |
-| May | 1,204.0 | 557.7 | 20 |
-| Jun | 1,012.2 | 1,693.0 | 4 |
-| Jul | 1,122.0 | 2,761.1 | – |
-| Aug | 914.4 | 1,916.7 | – |
+| Jan | 521.4 | 2,435.5 | 1,478.4 |
+| Feb | 648.2 | 1,541.9 (1) | 1,093.8 |
+| Mar | 832.7 | 1,216.4 (6) | 1,011.0 |
+| Apr | 927.6 | 1,114.6 (8) | 978.1 |
+| May | 1,204.0 | 557.7 (20) | 734.9 |
+| Jun | 1,012.2 | 1,693.0 (4) | 1,306.5 |
+| Jul | 1,122.0 | 2,761.1 | 1,941.5 |
+| Aug | 914.4 | 1,916.7 | 1,415.6 |
 
 Production totals match each report's own header figure exactly.
 

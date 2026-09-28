@@ -44,6 +44,7 @@ from pypvs.models.livedata import PVSLiveData
 from pypvs.models.meter import PVSMeter
 from pypvs.pvs import PVS
 
+from .calibration import normalise
 from .config import Settings, mask_serial
 from .discovery import DiscoveryCache, candidate_hosts
 from .models import Reading, ReadingSource, utcnow
@@ -56,11 +57,6 @@ VARS_MATCH_LIVEDATA = "/sys/livedata"
 #: consumption meter on a PVS6 (e.g. PVS6M20460000p / PVS6M20460000c).
 _PRODUCTION_SUFFIX = "p"
 _CONSUMPTION_SUFFIX = "c"
-
-#: House load below this (kW) is physically impossible and means the net
-#: channel is miscalibrated. Small negatives are just meter noise near zero.
-_IMPLAUSIBLE_HOME_KW = -0.05
-
 
 class GatewayError(RuntimeError):
     """Raised when a usable reading could not be obtained from the gateway."""
@@ -117,30 +113,6 @@ def _derive_triple(
         grid_kw = home_kw - solar_kw
 
     return float(solar_kw), float(home_kw), float(grid_kw)
-
-
-def _normalise(
-    solar_kw: float,
-    home_kw: float,
-    grid_kw: float,
-    grid_scale: float,
-) -> tuple[float, float, float, bool]:
-    """Apply GRID_SCALE and flag physically impossible readings.
-
-    Returns (solar, home, grid, implausible). When a scale is configured the
-    house load is re-derived, because the gateway computed its own site_load_p
-    from the uncorrected net power.
-    """
-    if grid_scale != 1.0:
-        grid_kw *= grid_scale
-        home_kw = solar_kw + grid_kw
-
-    implausible = home_kw < _IMPLAUSIBLE_HOME_KW
-    if implausible:
-        # Match what the SunStrong app puts on screen rather than showing a
-        # negative house load. The flag is what tells the truth about it.
-        home_kw = abs(home_kw)
-    return solar_kw, home_kw, grid_kw, implausible
 
 
 def _group_meters(raw: dict[str, Any]) -> list[dict[str, Any]]:
@@ -385,7 +357,7 @@ class PVSGatewayClient:
         solar_kw, home_kw, grid_kw = _derive_triple(
             live.pv_p, live.site_load_p, live.net_p
         )
-        solar_kw, home_kw, grid_kw, implausible = _normalise(
+        solar_kw, home_kw, grid_kw, implausible = normalise(
             solar_kw, home_kw, grid_kw, self._settings.grid_scale
         )
         self._note_plausibility(implausible, solar_kw, home_kw, grid_kw)
@@ -395,12 +367,14 @@ class PVSGatewayClient:
             home_kw=home_kw,
             grid_kw=grid_kw,
             source="livedata",
-            # Stored unscaled and unmodified: these counters are the gateway's
-            # own accumulators and match SunPower's monthly report, so they are
-            # the trustworthy record even when the power channel is not.
+            # Stored unscaled and unmodified. pv_en is trustworthy; site_load_en
+            # and net_en are accumulated from the same miscalibrated net channel
+            # (site_load_en runs backwards while exporting), so GRID_SCALE
+            # applies to their deltas just as it does to net_p.
             solar_kwh_lifetime=live.pv_en,
             home_kwh_lifetime=live.site_load_en,
             grid_net_kwh_lifetime=live.net_en,
+            grid_scale=self._settings.grid_scale,
         )
 
     async def _read_meters(self, pvs: PVS) -> Reading | None:
@@ -436,7 +410,7 @@ class PVSGatewayClient:
             grid_kw = measured
             home_kw = solar_kw + grid_kw
 
-        solar_kw, home_kw, grid_kw, implausible = _normalise(
+        solar_kw, home_kw, grid_kw, implausible = normalise(
             solar_kw, home_kw, grid_kw, self._settings.grid_scale
         )
         self._note_plausibility(implausible, solar_kw, home_kw, grid_kw)
@@ -458,4 +432,5 @@ class PVSGatewayClient:
             solar_kwh_lifetime=solar_lifetime,
             home_kwh_lifetime=home_lifetime,
             grid_net_kwh_lifetime=grid_lifetime,
+            grid_scale=self._settings.grid_scale,
         )

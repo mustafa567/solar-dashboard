@@ -295,6 +295,7 @@ class TestExport:
             "solar_kwh_lifetime",
             "home_kwh_lifetime",
             "grid_net_kwh_lifetime",
+            "grid_scale",
         }
 
     def test_csv_export_is_parseable_and_has_a_header(
@@ -326,6 +327,7 @@ class TestExport:
             "solar_kwh_lifetime",
             "home_kwh_lifetime",
             "grid_net_kwh_lifetime",
+            "grid_scale",
         ]
         assert len(rows) == 1441  # header + one day of samples
 

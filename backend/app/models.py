@@ -51,15 +51,22 @@ class Reading:
 
     # Lifetime kWh counters straight from the gateway, stored unmodified.
     #
-    # These are recorded because they are independently verifiable against
-    # SunPower's own monthly report, whereas the instantaneous power channel
-    # can be miscalibrated. Energy computed from the difference between two
-    # counters is exact regardless of what the power readings say. History
-    # cannot be re-fetched from the gateway, so they are captured from the
-    # start even though the rollups do not require them yet.
+    # The solar counter is exact. The home and net counters are accumulated
+    # by the gateway from the same net channel as the power readings, so they
+    # carry the same CT error (the home counter runs backwards while
+    # exporting) -- they match SunPower's report only because SunPower uses
+    # them too. History cannot be re-fetched from the gateway, so they are
+    # captured anyway: scaled by GRID_SCALE, their deltas are still exact
+    # energy with no sampling error.
     solar_kwh_lifetime: float | None = None
     home_kwh_lifetime: float | None = None
     grid_net_kwh_lifetime: float | None = None
+
+    #: The GRID_SCALE this reading was stored under. ``grid_kw / grid_scale``
+    #: recovers the gateway's raw net power exactly, so history can be
+    #: re-corrected later (see calibration.py). Rows from before this column
+    #: existed were all taken at 1.0.
+    grid_scale: float = 1.0
 
     @classmethod
     def create(
@@ -72,6 +79,7 @@ class Reading:
         solar_kwh_lifetime: float | None = None,
         home_kwh_lifetime: float | None = None,
         grid_net_kwh_lifetime: float | None = None,
+        grid_scale: float = 1.0,
     ) -> Reading:
         """Build a reading, normalising the timestamp and deriving direction."""
         return cls(
@@ -84,6 +92,7 @@ class Reading:
             solar_kwh_lifetime=_opt_round(solar_kwh_lifetime),
             home_kwh_lifetime=_opt_round(home_kwh_lifetime),
             grid_net_kwh_lifetime=_opt_round(grid_net_kwh_lifetime),
+            grid_scale=float(grid_scale),
         )
 
     @property
@@ -151,10 +160,11 @@ class DailyImport:
     are daily figures only -- there is no intraday detail in the reports -- so
     they can fill day/month buckets but never the hourly day view.
 
-    ``home_kwh`` is nullable on purpose: the reports carry the same
-    miscalibrated consumption channel the gateway does, and print impossible
-    values (negative, in accounting parentheses) on some days. Those are stored
-    as None rather than imported as fact.
+    The reports carry the same miscalibrated consumption channel the gateway
+    does, so ``home_kwh_reported`` keeps the "Energy Used" figure exactly as
+    printed (negative on heavy-export days) and ``home_kwh`` is that figure
+    corrected by ``grid_scale`` -- see ``calibration.corrected_daily_home``.
+    ``home_kwh`` is None where even the corrected value is impossible.
     """
 
     day: date
@@ -162,6 +172,8 @@ class DailyImport:
     home_kwh: float | None
     max_ac_kw: float | None = None
     source: str = "sunpower-monthly-report"
+    home_kwh_reported: float | None = None
+    grid_scale: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)

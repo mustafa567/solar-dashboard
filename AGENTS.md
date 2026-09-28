@@ -36,6 +36,7 @@ backend/
     store.py         ReadingStore ABC + create_store() factory  <-- the seam
     sqlite_store.py  THE ONLY module with SQL or `import sqlite3`
     pvs_client.py    pypvs wrapper -> one normalised Reading
+    calibration.py   GRID_SCALE math, shared by live reads and history rewrite
     discovery.py     finds the gateway when its DHCP lease moves it
     poller.py        the sampling loop + backoff + PollerStatus
     rollup.py        power -> energy integration and bucket windows (pure)
@@ -45,7 +46,7 @@ backend/
     live.py          flow arrows + status sentence for the home view
     main.py          FastAPI app, routes, static frontend mount
   scripts/           run-backend.bat, NSSM/Task Scheduler installers,
-                     seed_demo_data.py
+                     seed_demo_data.py, import_*.py, recalibrate.py
   tests/             pytest; fake gateway, temp DB, no network
 frontend/
   src/
@@ -139,27 +140,34 @@ slot that passes: a cool slate-violet. **If you change any series colour, re-run
 the validator** rather than eyeballing it, and keep the mark types different
 (area / area / line) so identity is never colour-alone.
 
-### 9. This gateway's power channel is miscalibrated -- the counters are not
+### 9. This gateway's net CT reads 2x high -- and so do two of its counters
 
 Measured from the real PVS6: `pv_p` 6.04 kW, `net_p` -10.70 kW, and therefore
-`site_load_p` -4.65 kW. A negative house load is impossible, and lifetime export
-(73,972 kWh) exceeds lifetime production (59,567 kWh). The consumption CT reads
-high; `ctSclFctr` is 200 on the consumption meter against 50 on production.
+`site_load_p` -4.65 kW. A negative house load is impossible. Re-deriving load as
+`solar + net / k` over 28h of samples, only **k = 2** makes it independent of
+solar (corr -0.04) with equal day and night baselines (0.81 / 0.80 kW); any
+k < 1.85 still goes negative. `GRID_SCALE=0.5` is the correction. README
+"Measuring the error" has the table.
 
 What follows from that, and must not be "simplified" away:
 
-- **The lifetime kWh counters ARE correct.** `pv_en` and `site_load_en` match
-  SunPower's own monthly report to within a plausible daily rate. Every
-  `Reading` stores them (`*_kwh_lifetime`) precisely so exact energy history is
-  preserved even though the power channel is wrong. History cannot be
-  re-fetched, so never stop capturing them.
-- **The SunStrong app shows the same bad data**, displaying the magnitude of the
-  negative `site_load_p`. `_normalise()` in `pvs_client.py` matches that so the
-  two dashboards agree, and sets `implausible` so the UI can warn instead of
-  hiding it. Do not silently clamp without the flag.
-- `GRID_SCALE` is the correction knob. When it is not 1.0 the house load is
-  **re-derived** as `solar + grid`, because the gateway computed its own
-  `site_load_p` from the uncorrected net power.
+- **Only `pv_en` is a clean counter.** `site_load_en` and `net_en` are
+  accumulated from the same net channel: `site_load_en` runs *backwards* while
+  exporting. An earlier version of this file called them correct because they
+  matched SunPower's monthly report -- but SunPower builds the report from them.
+  Still capture all three on every `Reading` (history cannot be re-fetched);
+  scaled by `GRID_SCALE`, their deltas are exact energy.
+- **Every stored row records the `grid_scale` it was taken under** (schema v5),
+  on `readings` and `daily_import`. `grid_kw / grid_scale` is the raw gateway
+  value, so `scripts/recalibrate.py` can re-express history exactly under a new
+  scale. Changing `GRID_SCALE` without running it leaves history mixed. Never
+  drop the column or store corrected values without it.
+- All scale arithmetic lives in `calibration.py`. House load is always
+  re-derived as `solar + corrected net`, because the gateway computed its own
+  `site_load_p` from the uncorrected net.
+- When a reading is still impossible, `normalise()` shows the magnitude (as the
+  SunStrong app does) and sets `implausible` so the UI warns. Do not silently
+  clamp without the flag. The SunStrong app will disagree once corrected.
 
 ### 10. The gateway's IP moves
 
@@ -213,9 +221,10 @@ the period before the poller existed. Rules:
 - The reports give no grid split, so `grid_known` is False for any period
   containing an imported bucket and the grid/percentage totals return None.
   Never report those as 0 -- it reads as a confident, wrong 100%.
-- `home_kwh` is nullable and often null: the reports print negative household
-  use on heavy-export days (same CT fault as rule 9). Import production as
-  fact, usage as unknown.
+- "Energy Used" carries the rule-9 CT fault (negative on heavy-export days).
+  `home_kwh_reported` keeps it as printed; `home_kwh` is
+  `produced + (used - produced) * grid_scale`, and null only where that is
+  still negative. Import production as fact.
 - The parser must handle accounting parentheses `(19.42)` = negative, and a
   bare `-` in the Max AC Power column. Missing the hyphen silently dropped
   three days from the 2026 import.
@@ -274,6 +283,16 @@ two healthy SQLite copies legitimately differ byte-for-byte.
   `abs=` tolerance.
 
 ## Change log
+
+- **2026-09-28** -- Measured the CT error: net power (and the `site_load_en` /
+  `net_en` counters) read 2x high, so `GRID_SCALE=0.5`. Corrected rule 9,
+  which wrongly called those counters trustworthy. Schema v5 records the
+  `grid_scale` of every reading and imported day, and `daily_import` keeps the
+  printed usage in `home_kwh_reported`. Added `calibration.py` and
+  `scripts/recalibrate.py` (snapshot, exact rescale, rollup rebuild). The report
+  importer now corrects usage instead of dropping negative days: all 39 dropped
+  days recover. `/api/export` carries `grid_scale` so merges stay exact.
+  127 tests passing.
 
 - **2026-09-27** -- Moved to a new Windows host and installed as an NSSM
   service. Fixed two credential leaks into the logs: the connect line in

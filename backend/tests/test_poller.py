@@ -264,7 +264,7 @@ class TestReadingNormalisation:
     """
 
     def test_negative_house_load_is_flagged_and_shown_as_magnitude(self) -> None:
-        from app.pvs_client import _normalise
+        from app.calibration import normalise as _normalise
 
         solar, home, grid, implausible = _normalise(5.90, -4.50, -10.40, 1.0)
 
@@ -277,7 +277,7 @@ class TestReadingNormalisation:
     def test_grid_scale_corrects_the_net_channel_and_rederives_the_load(
         self,
     ) -> None:
-        from app.pvs_client import _normalise
+        from app.calibration import normalise as _normalise
 
         solar, home, grid, implausible = _normalise(5.90, -4.50, -10.40, 0.5)
 
@@ -288,7 +288,7 @@ class TestReadingNormalisation:
         assert implausible is False
 
     def test_a_normal_reading_passes_through_untouched(self) -> None:
-        from app.pvs_client import _normalise
+        from app.calibration import normalise as _normalise
 
         solar, home, grid, implausible = _normalise(6.0, 1.5, -4.5, 1.0)
 
@@ -296,7 +296,7 @@ class TestReadingNormalisation:
         assert implausible is False
 
     def test_meter_noise_just_below_zero_is_not_flagged(self) -> None:
-        from app.pvs_client import _normalise
+        from app.calibration import normalise as _normalise
 
         _, home, _, implausible = _normalise(0.0, -0.01, -0.01, 1.0)
 

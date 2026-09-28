@@ -448,6 +448,7 @@ def register_api_routes(app: FastAPI) -> None:
                         "solar_kwh_lifetime",
                         "home_kwh_lifetime",
                         "grid_net_kwh_lifetime",
+                        "grid_scale",
                     ]
                 )
                 for reading in readings:
@@ -463,6 +464,7 @@ def register_api_routes(app: FastAPI) -> None:
                             reading.solar_kwh_lifetime,
                             reading.home_kwh_lifetime,
                             reading.grid_net_kwh_lifetime,
+                            reading.grid_scale,
                         ]
                     )
                     if buffer.tell() > 64 * 1024:
@@ -494,6 +496,7 @@ def register_api_routes(app: FastAPI) -> None:
                         "solar_kwh_lifetime": reading.solar_kwh_lifetime,
                         "home_kwh_lifetime": reading.home_kwh_lifetime,
                         "grid_net_kwh_lifetime": reading.grid_net_kwh_lifetime,
+                        "grid_scale": reading.grid_scale,
                     }
                     for reading in readings
                 ],

@@ -78,6 +78,8 @@ def _reading_from(record: dict[str, object]) -> Reading | None:
         solar_kwh_lifetime=_float_or_none(record.get("solar_kwh_lifetime")),
         home_kwh_lifetime=_float_or_none(record.get("home_kwh_lifetime")),
         grid_net_kwh_lifetime=_float_or_none(record.get("grid_net_kwh_lifetime")),
+        # Exports from before the column existed were all stored at 1.0.
+        grid_scale=_float_or_none(record.get("grid_scale")) or 1.0,
     )
 
 

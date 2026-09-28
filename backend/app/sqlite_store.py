@@ -26,7 +26,7 @@ from .store import ReadingStore, StoreStats
 _LOGGER = logging.getLogger(__name__)
 
 #: Bumped whenever the schema changes, so a future migration can branch on it.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Column notes:
 #   ts             UTC epoch seconds, primary key (also the range-query index)
@@ -37,6 +37,8 @@ SCHEMA_VERSION = 4
 #   source         which gateway API the sample came from: livedata / meters
 #   *_kwh_lifetime the gateway's own cumulative counters, stored unmodified;
 #                  nullable because older rows predate them
+#   grid_scale     the GRID_SCALE the row was stored under; grid_kw / grid_scale
+#                  is the gateway's raw net power (see calibration.py)
 #
 # hourly_rollup is a derived cache keyed by UTC hour start. It can be dropped
 # and rebuilt from readings at any time; see rollup_job.py.
@@ -50,20 +52,24 @@ CREATE TABLE IF NOT EXISTS readings (
     source          TEXT    NOT NULL DEFAULT 'livedata',
     solar_kwh_lifetime      REAL,
     home_kwh_lifetime       REAL,
-    grid_net_kwh_lifetime   REAL
+    grid_net_kwh_lifetime   REAL,
+    grid_scale              REAL    NOT NULL DEFAULT 1.0
 );
 
 -- Daily totals imported from SunPower monthly reports, for history from
 -- before this app was recording. Separate from `readings` so imported figures
--- are never mistaken for measured ones. home_kwh is nullable: the reports carry
--- impossible (negative) values on some days and those are not imported as fact.
+-- are never mistaken for measured ones. home_kwh_reported is "Energy Used" as
+-- printed (negative on heavy-export days); home_kwh is that value corrected by
+-- grid_scale, and NULL where even the corrected value is impossible.
 CREATE TABLE IF NOT EXISTS daily_import (
-    day          TEXT    PRIMARY KEY,
-    solar_kwh    REAL,
-    home_kwh     REAL,
-    max_ac_kw    REAL,
-    source       TEXT    NOT NULL,
-    imported_at  INTEGER NOT NULL
+    day                TEXT    PRIMARY KEY,
+    solar_kwh          REAL,
+    home_kwh           REAL,
+    max_ac_kw          REAL,
+    source             TEXT    NOT NULL,
+    imported_at        INTEGER NOT NULL,
+    home_kwh_reported  REAL,
+    grid_scale         REAL    NOT NULL DEFAULT 1.0
 );
 
 CREATE TABLE IF NOT EXISTS hourly_rollup (
@@ -79,7 +85,7 @@ CREATE TABLE IF NOT EXISTS hourly_rollup (
 
 _COLUMNS = (
     "ts, solar_kw, home_kw, grid_kw, grid_direction, source,"
-    " solar_kwh_lifetime, home_kwh_lifetime, grid_net_kwh_lifetime"
+    " solar_kwh_lifetime, home_kwh_lifetime, grid_net_kwh_lifetime, grid_scale"
 )
 
 #: Columns added after v1, applied to existing databases on open.
@@ -87,11 +93,19 @@ _ADDED_COLUMNS = {
     "solar_kwh_lifetime": "REAL",
     "home_kwh_lifetime": "REAL",
     "grid_net_kwh_lifetime": "REAL",
+    # v5. Every row before this was stored uncorrected, so 1.0 is exact.
+    "grid_scale": "REAL NOT NULL DEFAULT 1.0",
+}
+
+#: Columns added to daily_import after it was created (v5).
+_ADDED_DAILY_COLUMNS = {
+    "home_kwh_reported": "REAL",
+    "grid_scale": "REAL NOT NULL DEFAULT 1.0",
 }
 
 _INSERT_SQL = (
     f"INSERT OR REPLACE INTO readings ({_COLUMNS})"
-    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
 
 _HOURLY_COLUMNS = (
@@ -124,6 +138,7 @@ def _row_to_reading(row: sqlite3.Row) -> Reading:
         solar_kwh_lifetime=row["solar_kwh_lifetime"],
         home_kwh_lifetime=row["home_kwh_lifetime"],
         grid_net_kwh_lifetime=row["grid_net_kwh_lifetime"],
+        grid_scale=row["grid_scale"],
     )
 
 
@@ -152,6 +167,7 @@ def _reading_params(reading: Reading) -> tuple[object, ...]:
         reading.solar_kwh_lifetime,
         reading.home_kwh_lifetime,
         reading.grid_net_kwh_lifetime,
+        reading.grid_scale,
     )
 
 
@@ -168,6 +184,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
         if column not in existing:
             conn.execute(f"ALTER TABLE readings ADD COLUMN {column} {column_type}")
             _LOGGER.info("Schema migration: added readings.%s", column)
+
+    existing = {
+        row["name"] for row in conn.execute("PRAGMA table_info(daily_import)")
+    }
+    for column, column_type in _ADDED_DAILY_COLUMNS.items():
+        if column not in existing:
+            conn.execute(
+                f"ALTER TABLE daily_import ADD COLUMN {column} {column_type}"
+            )
+            _LOGGER.info("Schema migration: added daily_import.%s", column)
+            if column == "home_kwh_reported":
+                # Pre-v5 rows stored the printed value verbatim, except that
+                # negative days were dropped to NULL. Those stay unknown until
+                # the reports are re-imported; the rest are recovered exactly.
+                conn.execute("UPDATE daily_import SET home_kwh_reported = home_kwh")
 
 
 class SqliteReadingStore(ReadingStore):
@@ -402,6 +433,8 @@ class SqliteReadingStore(ReadingStore):
                 row.max_ac_kw,
                 row.source,
                 now,
+                row.home_kwh_reported,
+                row.grid_scale,
             )
             for row in rows
         ]
@@ -410,8 +443,9 @@ class SqliteReadingStore(ReadingStore):
             try:
                 conn.executemany(
                     "INSERT OR REPLACE INTO daily_import"
-                    " (day, solar_kwh, home_kwh, max_ac_kw, source, imported_at)"
-                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    " (day, solar_kwh, home_kwh, max_ac_kw, source, imported_at,"
+                    " home_kwh_reported, grid_scale)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     params,
                 )
                 conn.execute("COMMIT")
@@ -429,8 +463,8 @@ class SqliteReadingStore(ReadingStore):
         conn = self._require_conn()
         with self._lock:
             rows = conn.execute(
-                "SELECT day, solar_kwh, home_kwh, max_ac_kw, source"
-                " FROM daily_import WHERE day >= ? AND day < ? ORDER BY day ASC",
+                "SELECT day, solar_kwh, home_kwh, max_ac_kw, source,"
+                " home_kwh_reported, grid_scale FROM daily_import WHERE day >= ? AND day < ? ORDER BY day ASC",
                 (start.isoformat(), end.isoformat()),
             ).fetchall()
         return [
@@ -440,6 +474,8 @@ class SqliteReadingStore(ReadingStore):
                 home_kwh=row["home_kwh"],
                 max_ac_kw=row["max_ac_kw"],
                 source=row["source"],
+                home_kwh_reported=row["home_kwh_reported"],
+                grid_scale=row["grid_scale"],
             )
             for row in rows
         ]
