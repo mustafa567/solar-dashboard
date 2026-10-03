@@ -165,6 +165,32 @@ class TestHistory:
         assert body["points"][0]["label"] == "00:00"
         assert body["points"][13]["label"] == "13:00"
 
+    def test_browser_timezone_moves_the_day_edges(
+        self, seeded_settings: Settings
+    ) -> None:
+        # The configured zone is UTC-7; a viewer in UTC (no DST) must get
+        # their own midnight, not the host's.
+        with build_client(seeded_settings) as client:
+            body = client.get(
+                "/api/history",
+                params={"range": "day", "date": TEST_DAY.isoformat(), "tz": "UTC"},
+            ).json()
+        assert body["timezone"] == "UTC"
+        assert body["start"] == f"{TEST_DAY.isoformat()}T00:00:00+00:00"
+
+    def test_unknown_browser_timezone_falls_back_to_configured(
+        self, seeded_settings: Settings
+    ) -> None:
+        with build_client(seeded_settings) as client:
+            response = client.get(
+                "/api/history",
+                params={"range": "day", "date": TEST_DAY.isoformat(), "tz": "Mars/Base"},
+            )
+            live = client.get("/api/live", params={"tz": "../etc/passwd"})
+        assert response.status_code == 200
+        assert response.json()["start"].endswith("-07:00")
+        assert live.status_code == 200
+
     def test_empty_range_reports_no_data_rather_than_failing(
         self, seeded_settings: Settings
     ) -> None:

@@ -92,8 +92,11 @@ So the full serial must never appear in an API response or a log line. Use
 ### 4. Timestamps
 
 Everything is stored as **UTC epoch seconds**. Day/week/month/year boundaries
-are computed in the **configured local timezone**, because "today" is a local
-concept. Weeks are **Monday-start** (ISO).
+are computed in a local timezone, because "today" is a local concept: the
+**viewer's browser zone** (`tz=` on `/api/live`, `/api/history`,
+`/api/export`, sent by `lib/api.js`), falling back to the configured
+`TIMEZONE` when it is absent or unknown. The host PC's clock zone is not
+trusted -- it was found set wrong. Weeks are **Monday-start** (ISO).
 
 ### 5. Two read paths into the gateway
 
@@ -295,6 +298,11 @@ two healthy SQLite copies legitimately differ byte-for-byte.
   `abs=` tolerance.
 
 ## Change log
+
+- **2026-10-02** -- Day edges follow the viewer's browser timezone. The host
+  PC's zone was set wrong, so the frontend now sends its IANA zone as `tz=`
+  and the backend cuts days in it, falling back to `TIMEZONE` for a missing
+  or unknown name. 130 tests passing.
 
 - **2026-09-28** -- UI production pass. Added a System view over the existing
   `/api/status` (health verdict, 48-hour recording-coverage strip, poller,

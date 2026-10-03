@@ -11,7 +11,7 @@ import csv
 import io
 import logging
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, tzinfo
 from typing import AsyncIterator, Iterator, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -145,6 +145,24 @@ def _poller(request: Request) -> Poller:
     return request.app.state.poller
 
 
+def _view_timezone(settings: Settings, requested: str | None) -> tuple[tzinfo, str]:
+    """The zone to cut days in: the viewer's browser zone, else TIMEZONE.
+
+    "Today" belongs to whoever is looking, and the host PC's clock zone can be
+    wrong, so the frontend sends its IANA zone. Anything that does not load
+    falls back to the configured zone rather than failing the request.
+    """
+    name = (requested or "").strip()
+    if name and len(name) <= 64:
+        try:
+            from zoneinfo import ZoneInfo
+
+            return ZoneInfo(name), name
+        except Exception:  # noqa: BLE001 - unknown or malformed zone name
+            _LOGGER.debug("Ignoring unknown tz=%r from the browser", name)
+    return settings.timezone, settings.timezone_name or str(settings.timezone)
+
+
 def _parse_date(value: str | None, tz) -> date:
     """Parse a YYYY-MM-DD anchor, defaulting to today in the local timezone."""
     if not value:
@@ -273,11 +291,11 @@ async def _rolled_buckets(
 
 
 async def _totals_for_local_day(
-    store: ReadingStore, settings: Settings, moment: datetime
+    store: ReadingStore, settings: Settings, moment: datetime, tz: tzinfo
 ) -> EnergyTotals:
     """Energy so far today, for the home view's summary row."""
-    local_day = moment.astimezone(settings.timezone).date()
-    window = build_window("day", local_day, settings.timezone)
+    local_day = moment.astimezone(tz).date()
+    window = build_window("day", local_day, tz)
     return sum_totals(await _day_buckets(store, settings, window))
 
 
@@ -286,9 +304,15 @@ async def _totals_for_local_day(
 
 def register_api_routes(app: FastAPI) -> None:
     @app.get("/api/live")
-    async def get_live(request: Request) -> JSONResponse:
+    async def get_live(
+        request: Request,
+        tz: str | None = Query(
+            None, description="Viewer's IANA timezone; defaults to TIMEZONE."
+        ),
+    ) -> JSONResponse:
         """Current snapshot: power now, flow directions and today's totals."""
         settings = _settings(request)
+        zone, _ = _view_timezone(settings, tz)
         store = _store(request)
         poller = _poller(request)
 
@@ -298,7 +322,7 @@ def register_api_routes(app: FastAPI) -> None:
 
         today: EnergyTotals | None = None
         try:
-            today = await _totals_for_local_day(store, settings, utcnow())
+            today = await _totals_for_local_day(store, settings, utcnow(), zone)
         except Exception as err:  # noqa: BLE001 - live view must still render
             _LOGGER.debug("Could not compute today's totals: %s", err)
 
@@ -322,9 +346,13 @@ def register_api_routes(app: FastAPI) -> None:
             alias="date",
             description="Any date inside the window, YYYY-MM-DD. Defaults to today.",
         ),
+        tz: str | None = Query(
+            None, description="Viewer's IANA timezone; defaults to TIMEZONE."
+        ),
     ) -> JSONResponse:
         """Aggregated series for a day, week, month or year."""
         settings = _settings(request)
+        zone, zone_name = _view_timezone(settings, tz)
         store = _store(request)
 
         if range not in VALID_RANGES:
@@ -333,8 +361,8 @@ def register_api_routes(app: FastAPI) -> None:
                 detail=f"range must be one of {', '.join(VALID_RANGES)}",
             )
 
-        anchor = _parse_date(date_param, settings.timezone)
-        window = build_window(range, anchor, settings.timezone)
+        anchor = _parse_date(date_param, zone)
+        window = build_window(range, anchor, zone)
 
         if range == "day":
             pairs = [
@@ -379,11 +407,11 @@ def register_api_routes(app: FastAPI) -> None:
                 "label": window.label,
                 "start": window.start.isoformat(),
                 "end": window.end.isoformat(),
-                "timezone": settings.timezone_name or str(settings.timezone),
+                "timezone": zone_name,
                 "previous_date": window.previous_anchor.isoformat(),
                 "next_date": window.next_anchor.isoformat(),
                 "is_current_period": window.start
-                <= utcnow().astimezone(settings.timezone)
+                <= utcnow().astimezone(zone)
                 < window.end,
                 "has_data": has_data,
                 "points": points,
@@ -407,13 +435,17 @@ def register_api_routes(app: FastAPI) -> None:
         format: Literal["json", "csv"] = Query(
             "json", description="Output format"
         ),
+        tz: str | None = Query(
+            None, description="Zone for naive from/to; defaults to TIMEZONE."
+        ),
     ):
         """Dump raw readings, for the eventual one-time load into Azure SQL."""
         settings = _settings(request)
         store = _store(request)
+        zone, _ = _view_timezone(settings, tz)
 
-        start = _parse_moment(from_param, "from", settings.timezone)
-        end = _parse_moment(to_param, "to", settings.timezone)
+        start = _parse_moment(from_param, "from", zone)
+        end = _parse_moment(to_param, "to", zone)
         if end <= start:
             raise HTTPException(status_code=400, detail="'to' must be after 'from'")
         if end - start > timedelta(days=EXPORT_MAX_DAYS):

@@ -31,10 +31,27 @@ async function request(path, { signal } = {}) {
   return response.json();
 }
 
-export const fetchLive = (options) => request("/api/live", options);
+// The viewer's IANA zone, so "today" and day/month edges are cut where the
+// person looking is, not wherever the host PC's clock thinks it is.
+const browserTimeZone = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
+};
+
+const withTimeZone = (params) => {
+  const tz = browserTimeZone();
+  if (tz) params.set("tz", tz);
+  return params;
+};
+
+export const fetchLive = (options) =>
+  request(`/api/live?${withTimeZone(new URLSearchParams())}`, options);
 
 export const fetchHistory = ({ range, date }, options) => {
-  const params = new URLSearchParams({ range });
+  const params = withTimeZone(new URLSearchParams({ range }));
   if (date) params.set("date", date);
   return request(`/api/history?${params}`, options);
 };
@@ -42,6 +59,6 @@ export const fetchHistory = ({ range, date }, options) => {
 export const fetchStatus = (options) => request("/api/status", options);
 
 export const exportUrl = (from, to, format = "csv") =>
-  `/api/export?${new URLSearchParams({ from, to, format })}`;
+  `/api/export?${withTimeZone(new URLSearchParams({ from, to, format }))}`;
 
 export { ApiError };
