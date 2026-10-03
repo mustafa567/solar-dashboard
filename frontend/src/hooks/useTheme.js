@@ -39,6 +39,15 @@ export function useTheme(live) {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+    // Mobile browser chrome follows the page, not the colour baked into
+    // index.html at build time.
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      const colour = getComputedStyle(document.documentElement)
+        .getPropertyValue("--color-void")
+        .trim();
+      if (colour) meta.setAttribute("content", colour);
+    }
   }, [theme]);
 
   const cycleMode = useCallback(() => {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import DayChart from "./DayChart.jsx";
 import PeriodBars from "./PeriodBars.jsx";
 import { EmptyState, ErrorState, LoadingState, Panel, Skeleton } from "./States.jsx";
@@ -62,6 +62,19 @@ function Chevron({ direction }) {
   );
 }
 
+/** The day range's label arrives as an ISO date; show it as one. */
+function displayLabel(label) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(label ?? "");
+  if (!match) return label;
+  const [, year, month, day] = match.map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
 function PeriodNav({ label, onPrev, onNext, nextDisabled, onToday, showToday }) {
   return (
     <div className="flex items-center justify-between gap-3">
@@ -69,6 +82,7 @@ function PeriodNav({ label, onPrev, onNext, nextDisabled, onToday, showToday }) 
         type="button"
         onClick={onPrev}
         aria-label="Previous period"
+        title="Previous period (Left arrow)"
         className="rounded-lg border border-hairline p-2 text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
       >
         <Chevron direction="prev" />
@@ -92,11 +106,57 @@ function PeriodNav({ label, onPrev, onNext, nextDisabled, onToday, showToday }) 
         onClick={onNext}
         disabled={nextDisabled}
         aria-label="Next period"
+        title="Next period (Right arrow)"
         className="rounded-lg border border-hairline p-2 text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
       >
         <Chevron direction="next" />
       </button>
     </div>
+  );
+}
+
+const RANGE_KEYS = { d: "day", m: "month", y: "year" };
+
+/**
+ * Left/right step through periods, T returns to today, D/M/Y pick the range.
+ * Ignored while typing or with a modifier held, so browser shortcuts still work.
+ */
+function useAnalyzeKeys({ history, range, onChange }) {
+  const stateRef = useRef({ history, range, onChange });
+  stateRef.current = { history, range, onChange };
+
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+      const tag = event.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      const { history: current, range: currentRange, onChange: change } = stateRef.current;
+      const key = event.key.toLowerCase();
+
+      if (key === "arrowleft" && current) {
+        change({ range: currentRange, date: current.previous_date });
+      } else if (key === "arrowright" && current && !current.is_current_period) {
+        change({ range: currentRange, date: current.next_date });
+      } else if (key === "t") {
+        change({ range: currentRange, date: todayIso() });
+      } else if (RANGE_KEYS[key]) {
+        change({ range: RANGE_KEYS[key], date: current?.date ?? todayIso() });
+      } else {
+        return;
+      }
+      event.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+}
+
+function Kbd({ children }) {
+  return (
+    <kbd className="readout rounded border border-hairline bg-panel px-1 py-px text-[0.625rem] text-ink-muted">
+      {children}
+    </kbd>
   );
 }
 
@@ -227,6 +287,7 @@ export default function AnalyzeView({ history, error, loading, range, date, onCh
   const [copied, setCopied] = useState(false);
 
   const setRange = (nextRange) => onChange({ range: nextRange, date });
+  useAnalyzeKeys({ history, range, onChange });
 
   if (error && !history) {
     return (
@@ -257,7 +318,7 @@ export default function AnalyzeView({ history, error, loading, range, date, onCh
       <RangeTabs range={range} onChange={setRange} />
 
       <PeriodNav
-        label={history.label}
+        label={displayLabel(history.label)}
         onPrev={() => onChange({ range, date: history.previous_date })}
         onNext={() => onChange({ range, date: history.next_date })}
         nextDisabled={history.is_current_period}
@@ -321,6 +382,11 @@ export default function AnalyzeView({ history, error, loading, range, date, onCh
           {copied ? "Link copied" : "Copy JSON export link"}
         </button>
       </div>
+
+      <p className="hidden text-center text-[0.6875rem] text-ink-faint sm:block">
+        <Kbd>&larr;</Kbd> <Kbd>&rarr;</Kbd> browse &middot; <Kbd>T</Kbd> today &middot;{" "}
+        <Kbd>D</Kbd> <Kbd>M</Kbd> <Kbd>Y</Kbd> range
+      </p>
 
       <p className="text-center text-xs leading-relaxed text-ink-faint">
         {history.timezone} &middot; totals integrated from{" "}

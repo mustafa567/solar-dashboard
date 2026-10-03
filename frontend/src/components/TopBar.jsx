@@ -1,6 +1,7 @@
 const TABS = [
   { id: "now", label: "Now" },
   { id: "analyze", label: "Analyze" },
+  { id: "system", label: "System" },
 ];
 
 function SunIcon() {
@@ -84,41 +85,47 @@ export default function TopBar({
 
   return (
     <header className="sticky top-0 z-20 border-b border-hairline bg-void/70 backdrop-blur-md">
-      <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-2.5">
+      <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+        {/* The dot is the at-a-glance health light; it opens the System view. */}
+        <button
+          type="button"
+          onClick={() => onViewChange("system")}
+          className="flex items-center gap-2.5 rounded-lg py-1 pr-1"
+          title={`${dotLabel} - open System`}
+        >
           <span
             className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`}
-            title={dotLabel}
+            aria-hidden="true"
           />
           <span className="eyebrow text-ink">Solar</span>
-          <span className="sr-only">{dotLabel}</span>
-        </div>
+          <span className="sr-only">{dotLabel}. Open system status.</span>
+        </button>
 
         <div className="flex items-center gap-2">
-        <nav
-          className="flex rounded-full border border-hairline bg-panel p-0.5"
-          aria-label="Views"
-        >
-          {TABS.map((tab) => {
-            const active = view === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => onViewChange(tab.id)}
-                aria-current={active ? "page" : undefined}
-                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                  active
-                    ? "bg-panel-raised text-ink"
-                    : "text-ink-muted hover:text-ink"
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
-        <ThemeToggle theme={theme} mode={themeMode} onCycle={onCycleTheme} />
+          <nav
+            className="flex rounded-full border border-hairline bg-panel p-0.5"
+            aria-label="Views"
+          >
+            {TABS.map((tab) => {
+              const active = view === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => onViewChange(tab.id)}
+                  aria-current={active ? "page" : undefined}
+                  className={`rounded-full px-3 py-1.5 text-sm font-medium sm:px-4 transition-colors ${
+                    active
+                      ? "bg-panel-raised text-ink"
+                      : "text-ink-muted hover:text-ink"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
+          <ThemeToggle theme={theme} mode={themeMode} onCycle={onCycleTheme} />
         </div>
       </div>
     </header>

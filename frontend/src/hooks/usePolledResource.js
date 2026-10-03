@@ -7,7 +7,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * alongside it, because a stale reading with an honest warning is more useful
  * on a wall dashboard than an empty panel.
  */
-export function usePolledResource(fetcher, { intervalMs = null, deps = [] } = {}) {
+export function usePolledResource(
+  fetcher,
+  { intervalMs = null, deps = [], enabled = true } = {},
+) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -41,6 +44,9 @@ export function usePolledResource(fetcher, { intervalMs = null, deps = [] } = {}
   }, deps);
 
   useEffect(() => {
+    // Disabled resources (a view that is not on screen) fetch nothing.
+    if (!enabled) return undefined;
+
     const controller = new AbortController();
     load(controller.signal);
 
@@ -62,7 +68,7 @@ export function usePolledResource(fetcher, { intervalMs = null, deps = [] } = {}
       document.removeEventListener("visibilitychange", onVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load, intervalMs, ...deps]);
+  }, [load, intervalMs, enabled, ...deps]);
 
   const refresh = useCallback(() => load(), [load]);
 

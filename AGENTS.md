@@ -50,12 +50,13 @@ backend/
   tests/             pytest; fake gateway, temp DB, no network
 frontend/
   src/
-    App.jsx          view switch + polling wiring
+    App.jsx          view switch + polling wiring; AnalyzeView is lazy-loaded
     lib/api.js       every fetch; same-origin only
     lib/chartTheme.js  the VALIDATED chart palette (see rule 8)
-    hooks/           usePolledResource, useResizeKey, useTheme
-    components/      TopBar, NowView, FlowDiagram, AnalyzeView,
-                     DayChart, PeriodBars, ChartParts, States
+    hooks/           usePolledResource, useResizeKey, useTheme,
+                     useRoute (hash routes: #/now, #/analyze/<range>/<date>, #/system)
+    components/      TopBar, NowView, FlowDiagram, AnalyzeView, SystemView,
+                     DayChart, PeriodBars, ChartParts, States, ErrorBoundary
 data/                solar.db, demo.db and data/backups/ (gitignored)
 logs/                NSSM service logs (gitignored)
 ```
@@ -266,6 +267,17 @@ two healthy SQLite copies legitimately differ byte-for-byte.
   larger and a 31-day month forces a horizontal scrollbar on a desktop that
   has room to spare; the container should only scroll on a phone.
 
+- **No `manualChunks` in `vite.config.js`.** A manual `charts` chunk became a
+  static dependency of the entry (it absorbed shared modules), so Recharts was
+  preloaded on the live view after all. The lazy `AnalyzeView` import is what
+  splits it now.
+- **`DayChart`'s Y domain is set explicitly.** Recharts defaults to `[0, auto]`,
+  which silently clips the export area drawn below zero.
+- **The System view's coverage strip is the early warning for data loss.**
+  Hours before `storage.first_timestamp` are "before recording", not
+  "missing", and the running hour is allowed a poll interval of lag -- without
+  both it cries wolf and stops being read.
+
 ## Gotchas found the hard way
 
 - `PVS.discover()` runs *before* a password is set, and some firmware serves
@@ -283,6 +295,17 @@ two healthy SQLite copies legitimately differ byte-for-byte.
   `abs=` tolerance.
 
 ## Change log
+
+- **2026-09-28** -- UI production pass. Added a System view over the existing
+  `/api/status` (health verdict, 48-hour recording-coverage strip, poller,
+  gateway, storage, backups, jobs); the header's status dot opens it. Views
+  and Analyze periods live in the URL hash, so refresh, bookmarks and the back
+  button work. Error boundary per view; Analyze keyboard shortcuts
+  (left/right, T, D/M/Y); grid export drawn below zero on the day chart in the
+  validated teal (dashed mark, no new colour); live polling follows the
+  backend's `poll_interval_seconds`; history is not fetched while Analyze is
+  hidden; Analyze lazy-loaded (first paint ~79 KB gzip, was ~195); favicon,
+  `theme-color` following the theme, tab title shows live solar kW.
 
 - **2026-09-28** -- Applying the CT fix on the live host showed that
   `recalibrate.py --dry-run` was not read-only: opening the store ran the v5

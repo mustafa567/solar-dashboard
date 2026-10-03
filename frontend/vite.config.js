@@ -19,14 +19,9 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    rollupOptions: {
-      output: {
-        // Recharts is most of the bundle and only the Analyze view needs it;
-        // splitting it keeps the first paint of the live view small.
-        manualChunks: {
-          charts: ["recharts"],
-        },
-      },
-    },
+    // No manualChunks: App lazy-loads AnalyzeView, and that dynamic import is
+    // what keeps Recharts (most of the bundle) off the live view's first
+    // paint. A manual "charts" chunk defeated it by pulling shared modules in
+    // and becoming a static dependency of the entry.
   },
 });

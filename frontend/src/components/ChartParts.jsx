@@ -21,7 +21,11 @@ function MarkSwatch({ color, mark }) {
     <span
       aria-hidden="true"
       className="inline-block h-2.5 w-3.5 rounded-sm"
-      style={{ background: color, opacity: 0.55, border: `1px solid ${color}` }}
+      style={{
+        background: color,
+        opacity: mark === "area-dashed" ? 0.3 : 0.55,
+        border: `1px ${mark === "area-dashed" ? "dashed" : "solid"} ${color}`,
+      }}
     />
   );
 }
@@ -63,7 +67,7 @@ export function ChartTooltip({ active, payload, label, unit, heading }) {
               <span className="text-ink-muted">{entry.name}</span>
             </span>
             <span className="readout text-ink">
-              {entry.value == null ? "--" : Number(entry.value).toFixed(2)}
+              {entry.value == null ? "--" : Math.abs(Number(entry.value)).toFixed(2)}
               <span className="ml-1 text-ink-faint">{unit}</span>
             </span>
           </li>
@@ -117,7 +121,7 @@ export function ChartTable({ rows, unit, columns }) {
                   <td key={column.key} className="readout px-3 py-1.5 text-right text-ink">
                     {row[column.key] == null
                       ? "--"
-                      : Number(row[column.key]).toFixed(2)}
+                      : Math.abs(Number(row[column.key])).toFixed(2)}
                   </td>
                 ))}
               </tr>
