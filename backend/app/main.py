@@ -27,9 +27,8 @@ from .rollup import (
     RangeKind,
     Window,
     build_window,
-    combine_hourly,
     integrate_readings,
-    merge_daily_imports,
+    merge_imports_into_window,
     sum_totals,
 )
 from .rollup_job import refresh_hourly
@@ -215,6 +214,9 @@ def _bucket_dict(
     bucket: Bucket, window: Window, imported: bool = False
 ) -> dict[str, object]:
     totals = bucket.totals
+    # An imported or part-imported bucket's energy was not measured over its
+    # covered seconds, so an average kW from them would be invented.
+    average = (lambda kwh: None) if imported else bucket.average_kw
     return {
         "t": bucket.start.isoformat(),
         "label": _bucket_label(bucket, window),
@@ -222,10 +224,10 @@ def _bucket_dict(
         "home_kwh": totals.home_kwh,
         "grid_import_kwh": totals.grid_import_kwh,
         "grid_export_kwh": totals.grid_export_kwh,
-        "solar_kw_avg": bucket.average_kw(totals.solar_kwh),
-        "home_kw_avg": bucket.average_kw(totals.home_kwh),
-        "grid_import_kw_avg": bucket.average_kw(totals.grid_import_kwh),
-        "grid_export_kw_avg": bucket.average_kw(totals.grid_export_kwh),
+        "solar_kw_avg": average(totals.solar_kwh),
+        "home_kw_avg": average(totals.home_kwh),
+        "grid_import_kw_avg": average(totals.grid_import_kwh),
+        "grid_export_kw_avg": average(totals.grid_export_kwh),
         "sample_count": bucket.sample_count,
         "covered_seconds": bucket.covered_seconds,
         "has_data": (
@@ -283,11 +285,10 @@ async def _rolled_buckets(
     measured data always wins where it exists.
     """
     rollups = await store.query_hourly(window.start, window.end)
-    buckets = combine_hourly(rollups, window.edges)
     imports = await store.query_daily_imports(
         window.start.date(), window.end.date()
     )
-    return merge_daily_imports(buckets, imports)
+    return merge_imports_into_window(rollups, window, imports)
 
 
 async def _totals_for_local_day(

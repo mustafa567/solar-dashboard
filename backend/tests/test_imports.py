@@ -149,6 +149,41 @@ class TestMergeDailyImports:
         assert august[1] is True
         assert august[0].totals.solar_kwh == pytest.approx(310.0)
 
+    def test_a_partly_measured_month_keeps_its_imported_days(self) -> None:
+        """Regression: the poller started on Sept 27, and those 4 measured days
+        hid all 26 imported days before them in the year view."""
+        from app.models import EnergyTotals, HourlyRollup
+        from app.rollup import merge_imports_into_window
+
+        window = build_window("year", date(2026, 9, 1), TEST_TZ)
+        september = window.edges[8]
+        # One measured hour at noon on each of Sept 27..30.
+        measured = [
+            HourlyRollup(
+                hour_start=september + timedelta(days=day - 1, hours=12),
+                totals=EnergyTotals(5.0, 2.0, 0.5, 1.0),
+                sample_count=60,
+                covered_seconds=3600.0,
+            )
+            for day in range(27, 31)
+        ]
+        imports = [
+            DailyImport(date(2026, 9, day), 30.0, 20.0) for day in range(1, 31)
+        ]
+
+        merged = merge_imports_into_window(measured, window, imports)
+        bucket, imported = merged[8]
+
+        # 26 imported days + 4 measured ones; measured still wins on 27..30.
+        assert bucket.totals.solar_kwh == pytest.approx(26 * 30.0 + 4 * 5.0)
+        assert bucket.totals.home_kwh == pytest.approx(26 * 20.0 + 4 * 2.0)
+        # Part-imported: the grid split is incomplete, so it must say so.
+        assert imported is True
+        assert bucket.covered_seconds == pytest.approx(4 * 3600.0)
+        # Months with nothing at all stay empty, not imported.
+        assert merged[9] == (merged[9][0], False)
+        assert merged[9][0].totals.solar_kwh == 0.0
+
     def test_no_imports_changes_nothing(self) -> None:
         window, buckets = self._empty_month(date(2026, 8, 15))
         merged = merge_daily_imports(buckets, [])

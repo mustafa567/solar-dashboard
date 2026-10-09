@@ -219,7 +219,10 @@ the period before the poller existed. Rules:
 
 - It lives in its own table and is never mixed into `readings`.
 - `merge_daily_imports()` only fills buckets with **zero** measured coverage.
-  Measured data always wins.
+  Measured data always wins -- decided **per local day**, even in the year
+  view: `merge_imports_into_window()` merges month buckets day by day and
+  sums them, so a partly-measured month keeps its imported days. A
+  part-imported month is flagged `imported` and reports no average kW.
 - Imported buckets are flagged `imported: true` in the API so the UI can say
   where a number came from.
 - The reports give no grid split, so `grid_known` is False for any period
@@ -298,6 +301,11 @@ two healthy SQLite copies legitimately differ byte-for-byte.
   `abs=` tolerance.
 
 ## Change log
+
+- **2026-10-09** -- Year view dropped September's imported report days: the
+  measured-wins check ran per *month* bucket, so the poller's 4 days (from
+  Sept 27) hid the 26 imported days before them (~102 kWh shown, ~795 real).
+  The merge is now per day inside month buckets. 131 tests passing.
 
 - **2026-10-02** -- Day edges follow the viewer's browser timezone. The host
   PC's zone was set wrong, so the frontend now sends its IANA zone as `tz=`

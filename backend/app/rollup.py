@@ -369,6 +369,9 @@ def merge_daily_imports(
         if not days:
             merged.append((bucket, False))
             continue
+        # NOTE: a multi-day bucket only reaches here when the poller saw none
+        # of it; merge_imports_into_window() merges month buckets day by day
+        # so a partly-measured month still gets its other days from imports.
 
         solar = sum(row.solar_kwh or 0.0 for row in days)
         home_values = [row.home_kwh for row in days if row.home_kwh is not None]
@@ -394,4 +397,48 @@ def merge_daily_imports(
             )
         )
 
+    return merged
+
+
+def merge_imports_into_window(
+    rollups: Sequence[HourlyRollup],
+    window: Window,
+    imports: Sequence[DailyImport],
+) -> list[tuple[Bucket, bool]]:
+    """Hourly rollups plus imported days, bucketed for ``window``.
+
+    The measured-wins rule is applied per local *day*, whatever the bucket
+    size. Applied per month bucket instead, the few days the poller saw at the
+    end of the month it started in hid every imported day before them, so the
+    year view showed September 2026 as ~100 kWh instead of ~800.
+
+    A month made of both measured and imported days is flagged imported, since
+    its grid split is incomplete; its ``covered_seconds`` stay the measured
+    ones.
+    """
+    if window.bucket_kind != "month":
+        return merge_daily_imports(combine_hourly(rollups, window.edges), imports)
+
+    day_count = (window.end.date() - window.start.date()).days
+    day_edges = _day_edges(window.start, day_count, window.start.tzinfo)
+    days = merge_daily_imports(combine_hourly(rollups, day_edges), imports)
+
+    merged: list[tuple[Bucket, bool]] = []
+    for start, end in zip(window.edges, window.edges[1:]):
+        inside = [(b, imp) for b, imp in days if start <= b.start < end]
+        buckets = [b for b, _ in inside]
+        merged.append(
+            (
+                Bucket(
+                    start=start,
+                    end=end,
+                    totals=sum_totals(buckets),
+                    sample_count=sum(b.sample_count for b in buckets),
+                    covered_seconds=round(
+                        sum(b.covered_seconds for b in buckets), 3
+                    ),
+                ),
+                any(imp for _, imp in inside),
+            )
+        )
     return merged
